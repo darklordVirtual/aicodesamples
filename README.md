@@ -1,6 +1,6 @@
 # AI og Integrasjoner - Kodeeksempler
 
-Komplett kodebase for boken **"AI og Integrasjoner: Fra Grunnleggende til Avansert"** av Stian Skogbrott.
+Komplett kodebase for boken **"AI og Integrasjoner: Fra grunnleggende til avansert"** av Stian Skogbrott.
 
 ## 📚 Om Prosjektet
 
