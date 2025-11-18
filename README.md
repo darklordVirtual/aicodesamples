@@ -246,7 +246,7 @@ MIT License - se [LICENSE](LICENSE)
 
 - **Forfatter**: Stian Skogbrott
 - **Firma**: Luftfiber AS
-- **GitHub**: [luftfiber/ai-integrasjoner-norsk](https://github.com/luftfiber/ai-integrasjoner-norsk)
+- **GitHub**: [https://github.com/darklordVirtual/aicodesamples/](https://github.com/darklordVirtual/aicodesamples/)
 
 ## 🙏 Anerkjennelser
 
