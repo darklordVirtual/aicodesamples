@@ -1,0 +1,302 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-worker
+  namespace: production
+  labels:
+    app: celery-worker
+    component: worker
+spec:
+  replicas: 15
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 5
+      maxUnavailable: 3
+  selector:
+    matchLabels:
+      app: celery-worker
+  template:
+    metadata:
+      labels:
+        app: celery-worker
+        component: worker
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+    spec:
+      serviceAccountName: celery-worker-sa
+      
+      containers:
+      - name: worker
+        image: myregistry.io/ai-worker:latest
+        imagePullPolicy: Always
+        
+        command:
+        - celery
+        - -A
+        - src.integrations.scaling.celery_workers
+        - worker
+        - --loglevel=info
+        - --concurrency=4
+        - --max-tasks-per-child=1000
+        
+        env:
+        # Celery configuration
+        - name: CELERY_BROKER
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: url
+        
+        - name: CELERY_BACKEND
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: url
+        
+        # Database
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: db-secret
+              key: url
+        
+        # AI API keys
+        - name: ANTHROPIC_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: ai-secrets
+              key: anthropic-key
+        
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: ai-secrets
+              key: openai-key
+        
+        # Worker configuration
+        - name: WORKER_CONCURRENCY
+          value: "4"
+        
+        - name: WORKER_PREFETCH_MULTIPLIER
+          value: "4"
+        
+        - name: LOG_LEVEL
+          value: "INFO"
+        
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "1000m"
+          limits:
+            memory: "4Gi"
+            cpu: "3000m"
+        
+        # Liveness probe (check if worker is responsive)
+        livenessProbe:
+          exec:
+            command:
+            - celery
+            - -A
+            - src.integrations.scaling.celery_workers
+            - inspect
+            - ping
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 1000
+          capabilities:
+            drop:
+            - ALL
+        
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      
+      imagePullSecrets:
+      - name: registry-secret
+
+---
+# Fast queue workers (for real-time responses)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-worker-fast
+  namespace: production
+  labels:
+    app: celery-worker
+    queue: fast
+spec:
+  replicas: 10
+  selector:
+    matchLabels:
+      app: celery-worker
+      queue: fast
+  template:
+    metadata:
+      labels:
+        app: celery-worker
+        queue: fast
+    spec:
+      containers:
+      - name: worker
+        image: myregistry.io/ai-worker:latest
+        command:
+        - celery
+        - -A
+        - src.integrations.scaling.celery_workers
+        - worker
+        - --loglevel=info
+        - --concurrency=8
+        - -Q
+        - fast
+        
+        env:
+        - name: CELERY_BROKER
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: url
+        - name: CELERY_BACKEND
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: url
+        
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "2000m"
+
+---
+# Heavy computation workers
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-worker-heavy
+  namespace: production
+  labels:
+    app: celery-worker
+    queue: heavy
+spec:
+  replicas: 5
+  selector:
+    matchLabels:
+      app: celery-worker
+      queue: heavy
+  template:
+    metadata:
+      labels:
+        app: celery-worker
+        queue: heavy
+    spec:
+      containers:
+      - name: worker
+        image: myregistry.io/ai-worker:latest
+        command:
+        - celery
+        - -A
+        - src.integrations.scaling.celery_workers
+        - worker
+        - --loglevel=info
+        - --concurrency=2
+        - -Q
+        - heavy
+        
+        env:
+        - name: CELERY_BROKER
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: url
+        - name: CELERY_BACKEND
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: url
+        
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "2000m"
+          limits:
+            memory: "8Gi"
+            cpu: "4000m"
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: celery-worker-hpa
+  namespace: production
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: celery-worker
+  minReplicas: 15
+  maxReplicas: 50
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 75
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 85
+  
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 60
+      - type: Pods
+        value: 10
+        periodSeconds: 60
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Pods
+        value: 5
+        periodSeconds: 120
+      selectPolicy: Min
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: celery-worker-sa
+  namespace: production
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: celery-worker-pdb
+  namespace: production
+spec:
+  minAvailable: 10
+  selector:
+    matchLabels:
+      app: celery-worker
