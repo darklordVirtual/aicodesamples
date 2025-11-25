@@ -234,13 +234,11 @@ Systemet er optimalisert for:
 - 🔄 Automatisk retry med exponential backoff
 - 📈 Batch-processing for store datamengder
 
-## 🤝 Bidra
 
-Bidrag er velkomne! Se [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## 📄 Lisens
 
-MIT License - se [LICENSE](LICENSE)
+All rights reserved
 
 ## 📧 Kontakt
 
